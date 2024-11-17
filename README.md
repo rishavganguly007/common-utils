@@ -27,7 +27,7 @@ baseWebClientConfig:
       maxlifeLime: 300000
       pendingAcquireTimeout: 60000
       maxConnections: 100
-      maxAt.tempts: 3
+      maxAttempts: 3
       fixedDelayDuration: 10
       retryErrorcodesstr: "408,502,503"
     somwWebClientPoolName2:
@@ -39,7 +39,7 @@ baseWebClientConfig:
       maxlifeLime: 300000
       pendingAcquireTimeout: 60000
       maxConnections: 100
-      maxAt.tempts: 3
+      maxAtAttempts: 3
       fixedDelayDuration: 10
       sslWebClientFlag: true
       retryErrorcodesstr: "408,502,503"
