@@ -3,6 +3,8 @@ package io.myutils.commonUtils.config;
 import io.myutils.commonUtils.model.webClient.DelegateParams;
 import io.myutils.commonUtils.model.webClient.WebClientConfig;
 import io.netty.channel.ChannelOption;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
 import lombok.Getter;
@@ -22,11 +24,14 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 import reactor.netty.resources.ConnectionProvider;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.tcp.SslProvider;
 import reactor.netty.transport.ProxyProvider;
 import reactor.util.retry.Retry;
 
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -69,6 +74,84 @@ public class BaseWebClient {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .build();
+    }
+
+    public void buildSslWebClientWithParams(String connectionPoolName,
+                                            String baseUrl,
+                                            PrivateKey privateKey,
+                                            String keyPassword,
+                                            X509Certificate[] keyCertChain,
+                                            X509Certificate[] trustCertCollection){
+        WebClientConfig webClientConfig = webClientConfigMap
+                .webClientConfigMapMap().get(connectionPoolName);
+
+        ExchangeStrategies exchangeStrategies =
+                ExchangeStrategies.builder()
+                        .codecs(
+                                configure -> configure.defaultCodecs()
+                                        .maxInMemorySize(1024 * 1024 * webClientConfig.memoryLimit())
+                        ).build();
+
+        WebClient webClient =  WebClient.builder()
+                .filters(exchangeFilterFunctions -> exchangeFilterFunctions
+                        .add(logRequestHeaders()))
+                .clientConnector(getHttpClient(connectionPoolName, webClientConfig, baseUrl, privateKey, keyPassword, keyCertChain, trustCertCollection))
+                .baseUrl(baseUrl)
+                .exchangeStrategies(exchangeStrategies)
+                .build();
+
+        if (webClientMap.isEmpty()){
+            webClientMap = new HashMap<>();
+        }
+        webClientMap.put(connectionPoolName, webClient);
+    }
+
+    private ReactorClientHttpConnector getHttpClient(String connectionPoolName,
+                                                     WebClientConfig webClientConfig,
+                                                     String baseUrl,
+                                                     PrivateKey privateKey,
+                                                     String keyPassword,
+                                                     X509Certificate[] keyCertChain,
+                                                     X509Certificate[] trustCertCollection){
+        SslProvider sslProvider = SslProvider.builder()
+                        .sslContext(buildSslContextReactorClientHttpConnector(privateKey, keyPassword, keyCertChain, trustCertCollection))
+                        .build();
+        ConnectionProvider connProvider = ConnectionProvider
+                .builder(connectionPoolName)
+                .maxIdleTime(Duration.ofMillis(webClientConfig.maxIdleTime()))
+                .maxLifeTime(Duration.ofMillis(webClientConfig.maxLifetime()))
+                .maxConnections(webClientConfig.maxConnections())
+                .pendingAcquireTimeout(Duration.ofMillis(webClientConfig.pendingAcquireTimeout()))
+                .evictInBackground(Duration.ofMillis(webClientConfig.evictinBackground()))
+                .build();
+
+        HttpClient httpClient =
+                HttpClient.create(connProvider)
+                        .secure(sslProvider)
+                        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, webClientConfig.connectionTimeout())
+                        .doOnConnected(conn ->
+                                conn.addHandlerFirst(new ReadTimeoutHandler(webClientConfig.readTimeout(), TimeUnit.MILLISECONDS))
+                                        .addHandlerFirst(new WriteTimeoutHandler(webClientConfig.writeTimeout(),TimeUnit.MILLISECONDS))
+                        );
+
+    return new ReactorClientHttpConnector(httpClient);
+    }
+
+    private SslContext buildSslContextReactorClientHttpConnector(PrivateKey privateKey,
+                                                                 String keyPassword,
+                                                                 X509Certificate[] keyCertChain,
+                                                                 X509Certificate[] trustCertCollection){
+        SslContext sslContext = null;
+        try{
+            sslContext =
+                    SslContextBuilder.forClient()
+                            .keyManager(privateKey, keyPassword, keyCertChain)
+                            .trustManager(trustCertCollection)
+                            .build();
+        } catch (Exception e){
+            //Add log
+        }
+        return sslContext;
     }
 
     private ReactorClientHttpConnector getHttpClient(WebClientConfig webClientConfig, String connectionPoolName) {
