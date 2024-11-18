@@ -49,6 +49,7 @@ baseWebClientConfig:
 Update your main application with the following annotation:
 ```java
 @EnableConfiguration(WebClientConfigMap.class)
+// SpringBoot Main Application
 ```
 ### Step 5: add this in method to call the downstream
 
